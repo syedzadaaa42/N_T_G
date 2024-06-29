@@ -1,12 +1,22 @@
+import warnings
+warnings.filterwarnings("ignore", message="Wireshark is installed, but cannot read manuf")
+
 import tkinter as tk
 from tkinter import ttk
 from scapy.all import IP, ICMP, sr1, send, UDP
-import iperf3
 import speedtest
 import ping3
 import time
 import threading
 import statistics
+import subprocess
+
+# Attempt to import iperf3, handle if not available
+try:
+    import iperf3
+    IPERF3_AVAILABLE = True
+except ImportError:
+    IPERF3_AVAILABLE = False
 
 class NetworkTester:
     def __init__(self, network_ip, packet_count):
@@ -50,6 +60,15 @@ class NetworkTester:
         return f"Throughput: {throughput_mbps:.2f} Mbps"
 
     def measure_bandwidth(self, server='iperf-server.example.com', port=5201, duration=10):
+        if not IPERF3_AVAILABLE:
+            return "iperf3 is not installed or not available"
+        
+        # Check if iperf3 executable is available
+        try:
+            subprocess.run(["iperf3", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return "iperf3 executable not found or not accessible"
+        
         client = iperf3.Client()
         client.duration = duration
         client.server_hostname = server
@@ -164,3 +183,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = NetworkTesterGUI(root)
     root.mainloop()
+
