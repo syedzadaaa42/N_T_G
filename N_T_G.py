@@ -65,7 +65,8 @@ class NetworkTester:
         
         # Check if iperf3 executable is available
         try:
-            subprocess.run(["iperf3", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            result = subprocess.run(["iperf3", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            print(result.stdout.decode())  # This will print the version info to the console for verification
         except (subprocess.CalledProcessError, FileNotFoundError):
             return "iperf3 executable not found or not accessible"
         
@@ -183,4 +184,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = NetworkTesterGUI(root)
     root.mainloop()
-
