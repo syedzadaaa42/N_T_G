@@ -3,7 +3,7 @@ warnings.filterwarnings("ignore", message="Wireshark is installed, but cannot re
 
 import tkinter as tk
 from tkinter import ttk
-from scapy.all import IP, ICMP, sr1, send, UDP
+from scapy.all import IP, ICMP, sr1, send, UDP, TCP, Raw
 import speedtest
 import ping3
 import time
@@ -18,12 +18,56 @@ try:
 except ImportError:
     IPERF3_AVAILABLE = False
 
+# Map traffic types to their corresponding port numbers
+TRAFFIC_TYPE_PORT_MAP = {
+    "TCP": 80,
+    "FTP": 21,
+    "HTTP": 80,
+    "SMTP": 25,
+    "POP3": 110,
+    "SSH": 22,
+    "NTP": 123,
+    "Telnet": 23,
+    "EIGRP": 88,  # Example port for EIGRP
+    "OSPF": 89   # Example port for OSPF
+}
+
 class NetworkTester:
-    def __init__(self, network_ip, packet_count, update_progress):
+    def __init__(self, network_ip, packet_count, traffic_type, frame_length, update_progress):
         self.network_ip = network_ip
         self.packet_count = packet_count
+        self.traffic_type = traffic_type
+        self.frame_length = frame_length
         self.update_progress = update_progress
-        self.total_tests = 6  # Number of tests to perform
+        self.total_tests = 7  # Number of tests to perform, including port scan
+
+    def create_packet(self):
+        payload = 'X' * (self.frame_length - 20 - 20)  # Adjust for IP and TCP/UDP headers
+
+        if self.traffic_type == "TCP":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["TCP"]) / Raw(load=payload)
+        elif self.traffic_type == "FTP":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["FTP"]) / Raw(load=payload)
+        elif self.traffic_type == "HTTP":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["HTTP"]) / Raw(load=payload)
+        elif self.traffic_type == "SMTP":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["SMTP"]) / Raw(load=payload)
+        elif self.traffic_type == "POP3":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["POP3"]) / Raw(load=payload)
+        elif self.traffic_type == "SSH":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["SSH"]) / Raw(load=payload)
+        elif self.traffic_type == "NTP":
+            return IP(dst=self.network_ip) / UDP(dport=TRAFFIC_TYPE_PORT_MAP["NTP"]) / Raw(load=payload)
+        elif self.traffic_type == "Telnet":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["Telnet"]) / Raw(load=payload)
+        elif self.traffic_type == "EIGRP":
+            # EIGRP is not supported, use ICMP as a placeholder
+            return IP(dst=self.network_ip) / ICMP() / Raw(load=payload)
+        elif self.traffic_type == "OSPF":
+            # OSPF is not supported, use ICMP as a placeholder
+            return IP(dst=self.network_ip) / ICMP() / Raw(load=payload)
+        else:
+            return IP(dst=self.network_ip) / ICMP() / Raw(load=payload)
 
     def measure_speed(self):
         self.update_progress("Running Speed Test...", 0, self.total_tests)
@@ -38,7 +82,7 @@ class NetworkTester:
 
     def measure_latency(self):
         self.update_progress("Running Latency Test...", 1, self.total_tests)
-        packet = IP(dst=self.network_ip) / ICMP()
+        packet = self.create_packet()
         start_time = time.time()
         response = sr1(packet, timeout=1, verbose=False)
         end_time = time.time()
@@ -53,7 +97,7 @@ class NetworkTester:
 
     def measure_throughput(self, packet_size=1024, duration=10):
         self.update_progress("Running Throughput Test...", 2, self.total_tests)
-        packet = IP(dst=self.network_ip) / UDP(dport=12345) / (b'X' * packet_size)
+        packet = self.create_packet()
         start_time = time.time()
         packet_count = 0
 
@@ -109,7 +153,7 @@ class NetworkTester:
         packet_loss_count = 0
 
         for _ in range(self.packet_count):
-            packet = IP(dst=self.network_ip) / ICMP()
+            packet = self.create_packet()
             start_time = time.time()
             response = sr1(packet, timeout=1, verbose=False)
             end_time = time.time()
@@ -131,6 +175,19 @@ class NetworkTester:
         return (f"Average Latency: {average_latency:.6f} seconds",
                 f"Jitter: {jitter:.6f} seconds",
                 f"Packet Loss: {packet_loss_percentage:.2f}%")
+
+    def perform_port_scan(self):
+        self.update_progress("Performing Port Scan...", 6, self.total_tests)
+        port = TRAFFIC_TYPE_PORT_MAP.get(self.traffic_type, None)
+        open_ports = []
+        if port:
+            packet = IP(dst=self.network_ip) / TCP(dport=port, flags="S")
+            response = sr1(packet, timeout=0.5, verbose=False)
+            if response and response.haslayer(TCP) and response.getlayer(TCP).flags == 0x12:
+                open_ports.append(port)
+                send(IP(dst=self.network_ip) / TCP(dport=port, flags="R"), verbose=False)
+        self.update_progress("Port Scan Completed", 7, self.total_tests)
+        return open_ports
 
     def run_all_tests(self):
         results = []
@@ -161,6 +218,10 @@ class NetworkTester:
         results.append("\nQoS Metrics:")
         qos_results = self.measure_qos()
         results.extend(qos_results)
+
+        results.append("\nPort Scan:")
+        open_ports = self.perform_port_scan()
+        results.append(f"Open port: {open_ports[0]}" if open_ports else "No open ports found.")
         
         return "\n".join(results)
 
@@ -179,17 +240,31 @@ class NetworkTesterGUI:
         self.packet_count_entry = ttk.Entry(root)
         self.packet_count_entry.grid(row=1, column=1, padx=10, pady=10)
 
+        self.traffic_label = ttk.Label(root, text="Select Traffic Type:")
+        self.traffic_label.grid(row=2, column=0, padx=10, pady=10)
+        self.traffic_types = ["TCP", "FTP", "HTTP", "SMTP", "POP3", "SSH", "NTP", "Telnet", "EIGRP", "OSPF"]
+        self.traffic_type = ttk.Combobox(root, values=self.traffic_types)
+        self.traffic_type.grid(row=2, column=1, padx=10, pady=10)
+        self.traffic_type.set(self.traffic_types[0])  # Default to the first traffic type
+
+        self.frame_label = ttk.Label(root, text="Select Frame Length:")
+        self.frame_label.grid(row=3, column=0, padx=10, pady=10)
+        self.frame_lengths = [64, 128, 256, 512, 1024, 1500]
+        self.frame_length = ttk.Combobox(root, values=self.frame_lengths)
+        self.frame_length.grid(row=3, column=1, padx=10, pady=10)
+        self.frame_length.set(self.frame_lengths[0])  # Default to the first frame length
+
         self.start_button = ttk.Button(root, text="Start Tests", command=self.start_tests)
-        self.start_button.grid(row=2, column=0, columnspan=2, padx=10, pady=10)
+        self.start_button.grid(row=4, column=0, columnspan=2, padx=10, pady=10)
 
         self.progress = ttk.Progressbar(root, orient=tk.HORIZONTAL, length=200, mode='determinate')
-        self.progress.grid(row=2, column=2, padx=10, pady=10)
+        self.progress.grid(row=4, column=2, padx=10, pady=10)
 
         self.results_text = tk.Text(root, height=30, width=80)
-        self.results_text.grid(row=3, column=0, columnspan=3, padx=10, pady=10)
+        self.results_text.grid(row=5, column=0, columnspan=3, padx=10, pady=10)
 
         self.progress_label = ttk.Label(root, text="")
-        self.progress_label.grid(row=4, column=0, columnspan=3, padx=10, pady=10)
+        self.progress_label.grid(row=6, column=0, columnspan=3, padx=10, pady=10)
 
         self.tester = None
         self.start_time = None
@@ -197,7 +272,9 @@ class NetworkTesterGUI:
     def start_tests(self):
         network_ip = self.network_ip_entry.get()
         packet_count = int(self.packet_count_entry.get())
-        self.tester = NetworkTester(network_ip, packet_count, self.update_progress)
+        traffic_type = self.traffic_type.get()
+        frame_length = int(self.frame_length.get())
+        self.tester = NetworkTester(network_ip, packet_count, traffic_type, frame_length, self.update_progress)
         self.results_text.delete(1.0, tk.END)
         self.progress["value"] = 0
         self.progress_label.config(text="Starting tests...")
