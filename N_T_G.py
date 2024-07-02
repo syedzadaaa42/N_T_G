@@ -29,7 +29,7 @@ TRAFFIC_TYPE_PORT_MAP = {
     "NTP": 123,
     "Telnet": 23,
     "EIGRP": 88,  # Example port for EIGRP
-    "OSPF": 89   # Example port for OSPF
+    "OSPF": 89  # Example port for OSPF
 }
 
 class NetworkTester:
@@ -39,7 +39,7 @@ class NetworkTester:
         self.traffic_type = traffic_type
         self.frame_length = frame_length
         self.update_progress = update_progress
-        self.total_tests = 7  # Number of tests to perform, including port scan
+        self.total_tests = 8  # Number of tests to perform, including port scan and load test
 
     def create_packet(self):
         payload = 'X' * (self.frame_length - 20 - 20)  # Adjust for IP and TCP/UDP headers
@@ -71,12 +71,16 @@ class NetworkTester:
 
     def measure_speed(self):
         self.update_progress("Running Speed Test...", 0, self.total_tests)
-        st = speedtest.Speedtest()
-        st.download()
-        st.upload()
-        results = st.results.dict()
-        download_speed = f"Download speed: {results['download'] / 1_000_000:.2f} Mbps"
-        upload_speed = f"Upload speed: {results['upload'] / 1_000_000:.2f} Mbps"
+        try:
+            st = speedtest.Speedtest()
+            st.download()
+            st.upload()
+            results = st.results.dict()
+            download_speed = f"Download speed: {results['download'] / 1_000_000:.2f} Mbps"
+            upload_speed = f"Upload speed: {results['upload'] / 1_000_000:.2f} Mbps"
+        except Exception as e:
+            download_speed = "Speed Test Failed"
+            upload_speed = str(e)
         self.update_progress("Speed Test Completed", 1, self.total_tests)
         return download_speed, upload_speed
 
@@ -117,7 +121,7 @@ class NetworkTester:
         if not IPERF3_AVAILABLE:
             self.update_progress("Bandwidth Test Failed: iperf3 not available", 4, self.total_tests)
             return "iperf3 is not installed or not available"
-        
+
         # Check if iperf3 executable is available
         try:
             result = subprocess.run(["iperf3", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -125,7 +129,7 @@ class NetworkTester:
         except (subprocess.CalledProcessError, FileNotFoundError):
             self.update_progress("Bandwidth Test Failed: iperf3 executable not found", 4, self.total_tests)
             return "iperf3 executable not found or not accessible"
-        
+
         client = iperf3.Client()
         client.duration = duration
         client.server_hostname = server
@@ -189,9 +193,26 @@ class NetworkTester:
         self.update_progress("Port Scan Completed", 7, self.total_tests)
         return open_ports
 
+    def perform_load_test(self, duration=30):
+        self.update_progress("Running Load Test...", 7, self.total_tests)
+        packet = self.create_packet()
+        start_time = time.time()
+        packet_count = 0
+
+        while time.time() - start_time < duration:
+            send(packet, verbose=False)
+            packet_count += 1
+
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        load_throughput = (self.frame_length * packet_count * 8) / elapsed_time  # bits per second
+        load_throughput_mbps = load_throughput / 1_000_000  # Mbps
+        self.update_progress("Load Test Completed", 8, self.total_tests)
+        return f"Load Test Throughput: {load_throughput_mbps:.2f} Mbps"
+
     def run_all_tests(self):
         results = []
-        
+
         results.append("Running Network Tests...\n")
 
         results.append("Speed Test:")
@@ -222,8 +243,12 @@ class NetworkTester:
         results.append("\nPort Scan:")
         open_ports = self.perform_port_scan()
         results.append(f"Open port: {open_ports[0]}" if open_ports else "No open ports found.")
-        
+
+        results.append("\nLoad Test:")
+        results.append(self.perform_load_test())
+
         return "\n".join(results)
+
 
 class NetworkTesterGUI:
     def __init__(self, root):
@@ -295,8 +320,10 @@ class NetworkTesterGUI:
         estimated_total_time = elapsed_time / current_step * total_steps if current_step > 0 else 0
         remaining_time = estimated_total_time - elapsed_time
         remaining_time_formatted = time.strftime("%H:%M:%S", time.gmtime(remaining_time))
-        self.progress_label.config(text=f"{message} - {progress_percentage:.2f}% complete - Time remaining: {remaining_time_formatted}")
+        self.progress_label.config(
+            text=f"{message} - {progress_percentage:.2f}% complete - Time remaining: {remaining_time_formatted}")
         self.progress["value"] = progress_percentage
+
 
 if __name__ == "__main__":
     root = tk.Tk()
