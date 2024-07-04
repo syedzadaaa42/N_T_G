@@ -36,40 +36,40 @@ TRAFFIC_TYPE_PORT_MAP = {
 }
 
 class NetworkTester:
-    def __init__(self, network_ip, packet_count, traffic_type, frame_length, update_progress):
+    def __init__(self, network_ip, packet_count, traffic_types, frame_length, update_progress):
         self.network_ip = network_ip
         self.packet_count = packet_count
-        self.traffic_type = traffic_type
+        self.traffic_types = traffic_types
         self.frame_length = frame_length
         self.update_progress = update_progress
         self.total_tests = 8  # Number of tests to perform, including port scan and load test
 
-    def create_packet(self):
+    def create_packet(self, traffic_type):
         payload = 'X' * (self.frame_length - 20 - 20)  # Adjust for IP and TCP/UDP headers
 
-        if self.traffic_type == "RTP":
+        if traffic_type == "RTP":
             return self.create_rtp_packet()
 
-        elif self.traffic_type == "TCP":
+        elif traffic_type == "TCP":
             return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["TCP"]) / Raw(load=payload)
-        elif self.traffic_type == "FTP":
+        elif traffic_type == "FTP":
             return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["FTP"]) / Raw(load=payload)
-        elif self.traffic_type == "HTTP":
+        elif traffic_type == "HTTP":
             return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["HTTP"]) / Raw(load=payload)
-        elif self.traffic_type == "SMTP":
+        elif traffic_type == "SMTP":
             return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["SMTP"]) / Raw(load=payload)
-        elif self.traffic_type == "POP3":
+        elif traffic_type == "POP3":
             return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["POP3"]) / Raw(load=payload)
-        elif self.traffic_type == "SSH":
+        elif traffic_type == "SSH":
             return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["SSH"]) / Raw(load=payload)
-        elif self.traffic_type == "NTP":
+        elif traffic_type == "NTP":
             return IP(dst=self.network_ip) / UDP(dport=TRAFFIC_TYPE_PORT_MAP["NTP"]) / Raw(load=payload)
-        elif self.traffic_type == "Telnet":
+        elif traffic_type == "Telnet":
             return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["Telnet"]) / Raw(load=payload)
-        elif self.traffic_type == "EIGRP":
+        elif traffic_type == "EIGRP":
             # EIGRP is not supported, use ICMP as a placeholder
             return IP(dst=self.network_ip) / ICMP() / Raw(load=payload)
-        elif self.traffic_type == "OSPF":
+        elif traffic_type == "OSPF":
             # OSPF is not supported, use ICMP as a placeholder
             return IP(dst=self.network_ip) / ICMP() / Raw(load=payload)
         else:
@@ -116,35 +116,43 @@ class NetworkTester:
 
     def measure_latency(self):
         self.update_progress("Running Latency Test...", 1, self.total_tests)
-        packet = self.create_packet()
-        start_time = time.time()
-        response = sr1(packet, timeout=1, verbose=False)
-        end_time = time.time()
+        latencies = []
+        for traffic_type in self.traffic_types:
+            packet = self.create_packet(traffic_type)
+            start_time = time.time()
+            response = sr1(packet, timeout=1, verbose=False)
+            end_time = time.time()
 
-        if response:
-            latency = end_time - start_time
-            self.update_progress("Latency Test Completed", 2, self.total_tests)
-            return f"Latency: {latency:.6f} seconds"
-        else:
-            self.update_progress("Latency Test Failed", 2, self.total_tests)
-            return "No response"
+            if response:
+                latency = end_time - start_time
+                latencies.append(f"{traffic_type} Latency: {latency:.6f} seconds")
+            else:
+                latencies.append(f"{traffic_type} Latency: No response")
+
+        self.update_progress("Latency Test Completed", 2, self.total_tests)
+        return latencies
 
     def measure_throughput(self, packet_size=1024, duration=10):
         self.update_progress("Running Throughput Test...", 2, self.total_tests)
-        packet = self.create_packet()
-        start_time = time.time()
-        packet_count = 0
+        throughputs = []
 
-        while time.time() - start_time < duration:
-            send(packet, verbose=False)
-            packet_count += 1
+        for traffic_type in self.traffic_types:
+            packet = self.create_packet(traffic_type)
+            start_time = time.time()
+            packet_count = 0
 
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        throughput = (packet_size * packet_count * 8) / elapsed_time  # bits per second
-        throughput_mbps = throughput / 1_000_000  # Mbps
+            while time.time() - start_time < duration:
+                send(packet, verbose=False)
+                packet_count += 1
+
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            throughput = (packet_size * packet_count * 8) / elapsed_time  # bits per second
+            throughput_mbps = throughput / 1_000_000  # Mbps
+            throughputs.append(f"{traffic_type} Throughput: {throughput_mbps:.2f} Mbps")
+
         self.update_progress("Throughput Test Completed", 3, self.total_tests)
-        return f"Throughput: {throughput_mbps:.2f} Mbps"
+        return throughputs
 
     def measure_bandwidth(self, server='iperf-server.example.com', port=5201, duration=10):
         self.update_progress("Running Bandwidth Test...", 3, self.total_tests)
@@ -183,62 +191,73 @@ class NetworkTester:
 
     def measure_qos(self):
         self.update_progress("Running QoS Metrics...", 5, self.total_tests)
-        latencies = []
-        packet_loss_count = 0
+        results = []
 
-        for _ in range(self.packet_count):
-            packet = self.create_packet()
-            start_time = time.time()
-            response = sr1(packet, timeout=1, verbose=False)
-            end_time = time.time()
+        for traffic_type in self.traffic_types:
+            latencies = []
+            packet_loss_count = 0
 
-            if response:
-                latencies.append(end_time - start_time)
+            for _ in range(self.packet_count):
+                packet = self.create_packet(traffic_type)
+                start_time = time.time()
+                response = sr1(packet, timeout=1, verbose=False)
+                end_time = time.time()
+
+                if response:
+                    latencies.append(end_time - start_time)
+                else:
+                    packet_loss_count += 1
+
+            if latencies:
+                average_latency = sum(latencies) / len(latencies)
+                jitter = statistics.stdev(latencies) if len(latencies) > 1 else 0.0
             else:
-                packet_loss_count += 1
+                average_latency = jitter = 0.0
 
-        if latencies:
-            average_latency = sum(latencies) / len(latencies)
-            jitter = statistics.stdev(latencies) if len(latencies) > 1 else 0.0
-        else:
-            average_latency = jitter = 0.0
+            packet_loss_percentage = (packet_loss_count / self.packet_count) * 100
 
-        packet_loss_percentage = (packet_loss_count / self.packet_count) * 100
+            results.append((f"{traffic_type} Average Latency: {average_latency:.6f} seconds",
+                            f"{traffic_type} Jitter: {jitter:.6f} seconds",
+                            f"{traffic_type} Packet Loss: {packet_loss_percentage:.2f}%"))
 
         self.update_progress("QoS Metrics Completed", 6, self.total_tests)
-        return (f"Average Latency: {average_latency:.6f} seconds",
-                f"Jitter: {jitter:.6f} seconds",
-                f"Packet Loss: {packet_loss_percentage:.2f}%")
+        return results
 
     def perform_port_scan(self):
         self.update_progress("Performing Port Scan...", 6, self.total_tests)
-        port = TRAFFIC_TYPE_PORT_MAP.get(self.traffic_type, None)
         open_ports = []
-        if port:
-            packet = IP(dst=self.network_ip) / TCP(dport=port, flags="S")
-            response = sr1(packet, timeout=0.5, verbose=False)
-            if response and response.haslayer(TCP) and response.getlayer(TCP).flags == 0x12:
-                open_ports.append(port)
-                send(IP(dst=self.network_ip) / TCP(dport=port, flags="R"), verbose=False)
+        for traffic_type in self.traffic_types:
+            port = TRAFFIC_TYPE_PORT_MAP.get(traffic_type, None)
+            if port:
+                packet = IP(dst=self.network_ip) / TCP(dport=port, flags="S")
+                response = sr1(packet, timeout=0.5, verbose=False)
+                if response and response.haslayer(TCP) and response.getlayer(TCP).flags == 0x12:
+                    open_ports.append((traffic_type, port))
+                    send(IP(dst=self.network_ip) / TCP(dport=port, flags="R"), verbose=False)
         self.update_progress("Port Scan Completed", 7, self.total_tests)
         return open_ports
 
     def perform_load_test(self, duration=30):
         self.update_progress("Running Load Test...", 7, self.total_tests)
-        packet = self.create_packet()
-        start_time = time.time()
-        packet_count = 0
+        load_throughputs = []
 
-        while time.time() - start_time < duration:
-            send(packet, verbose=False)
-            packet_count += 1
+        for traffic_type in self.traffic_types:
+            packet = self.create_packet(traffic_type)
+            start_time = time.time()
+            packet_count = 0
 
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        load_throughput = (self.frame_length * packet_count * 8) / elapsed_time  # bits per second
-        load_throughput_mbps = load_throughput / 1_000_000  # Mbps
+            while time.time() - start_time < duration:
+                send(packet, verbose=False)
+                packet_count += 1
+
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            load_throughput = (self.frame_length * packet_count * 8) / elapsed_time  # bits per second
+            load_throughput_mbps = load_throughput / 1_000_000  # Mbps
+            load_throughputs.append(f"{traffic_type} Load Test Throughput: {load_throughput_mbps:.2f} Mbps")
+
         self.update_progress("Load Test Completed", 8, self.total_tests)
-        return f"Load Test Throughput: {load_throughput_mbps:.2f} Mbps"
+        return load_throughputs
 
     def run_all_tests(self):
         results = []
@@ -251,10 +270,12 @@ class NetworkTester:
         results.append(upload_speed)
 
         results.append("\nLatency Test:")
-        results.append(self.measure_latency())
+        latency_results = self.measure_latency()
+        results.extend(latency_results)
 
         results.append("\nThroughput Test:")
-        results.append(self.measure_throughput(duration=self.packet_count))
+        throughput_results = self.measure_throughput(duration=self.packet_count)
+        results.extend(throughput_results)
 
         results.append("\nBandwidth Test:")
         bandwidth_results = self.measure_bandwidth(server=self.network_ip)
@@ -268,14 +289,19 @@ class NetworkTester:
 
         results.append("\nQoS Metrics:")
         qos_results = self.measure_qos()
-        results.extend(qos_results)
+        for result in qos_results:
+            results.extend(result)
 
         results.append("\nPort Scan:")
         open_ports = self.perform_port_scan()
-        results.append(f"Open port: {open_ports[0]}" if open_ports else "No open ports found.")
+        for port in open_ports:
+            results.append(f"{port[0]} Open port: {port[1]}")
+        if not open_ports:
+            results.append("No open ports found.")
 
         results.append("\nLoad Test:")
-        results.append(self.perform_load_test())
+        load_test_results = self.perform_load_test()
+        results.extend(load_test_results)
 
         return "\n".join(results)
 
@@ -286,40 +312,43 @@ class NetworkTesterGUI:
         self.root.title("Network Tester")
 
         self.network_ip_label = ttk.Label(root, text="Enter the IP address of the network to test:")
-        self.network_ip_label.grid(row=0, column=0, padx=10, pady=10)
+        self.network_ip_label.grid(row=0, column=0, padx=10, pady=10, sticky=tk.W)
         self.network_ip_entry = ttk.Entry(root)
         self.network_ip_entry.grid(row=0, column=1, padx=10, pady=10)
 
         self.packet_count_label = ttk.Label(root, text="Enter the number of packets to send:")
-        self.packet_count_label.grid(row=1, column=0, padx=10, pady=10)
+        self.packet_count_label.grid(row=1, column=0, padx=10, pady=10, sticky=tk.W)
         self.packet_count_entry = ttk.Entry(root)
         self.packet_count_entry.grid(row=1, column=1, padx=10, pady=10)
 
-        self.traffic_label = ttk.Label(root, text="Select Traffic Type:")
-        self.traffic_label.grid(row=2, column=0, padx=10, pady=10)
+        self.traffic_label = ttk.Label(root, text="Select Traffic Type(s):")
+        self.traffic_label.grid(row=2, column=0, padx=10, pady=10, sticky=tk.W)
+        self.traffic_type_vars = {}
         self.traffic_types = ["TCP", "FTP", "HTTP", "SMTP", "POP3", "SSH", "NTP", "Telnet", "EIGRP", "OSPF", "RTP"]
-        self.traffic_type = ttk.Combobox(root, values=self.traffic_types)
-        self.traffic_type.grid(row=2, column=1, padx=10, pady=10)
-        self.traffic_type.set(self.traffic_types[0])  # Default to the first traffic type
+        for i, traffic_type in enumerate(self.traffic_types):
+            var = tk.BooleanVar()
+            chk = ttk.Checkbutton(root, text=traffic_type, variable=var)
+            chk.grid(row=2+i//3, column=1+i%3, padx=5, pady=5, sticky=tk.W)
+            self.traffic_type_vars[traffic_type] = var
 
         self.frame_label = ttk.Label(root, text="Select Frame Length:")
-        self.frame_label.grid(row=3, column=0, padx=10, pady=10)
+        self.frame_label.grid(row=6, column=0, padx=10, pady=10, sticky=tk.W)
         self.frame_lengths = [64, 128, 256, 512, 1024, 1500]
         self.frame_length = ttk.Combobox(root, values=self.frame_lengths)
-        self.frame_length.grid(row=3, column=1, padx=10, pady=10)
+        self.frame_length.grid(row=6, column=1, padx=10, pady=10)
         self.frame_length.set(self.frame_lengths[0])  # Default to the first frame length
 
-        self.start_button = ttk.Button(root, text="Start Tests", command=self.start_tests)
-        self.start_button.grid(row=4, column=0, columnspan=2, padx=10, pady=10)
+        self.start_button = ttk.Button(root, text="Generate Traffic", command=self.start_tests)
+        self.start_button.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
 
         self.progress = ttk.Progressbar(root, orient=tk.HORIZONTAL, length=200, mode='determinate')
-        self.progress.grid(row=4, column=2, padx=10, pady=10)
+        self.progress.grid(row=7, column=2, padx=10, pady=10)
 
-        self.results_text = tk.Text(root, height=30, width=80)
-        self.results_text.grid(row=5, column=0, columnspan=3, padx=10, pady=10)
+        self.results_text = tk.Text(root, height=20, width=80)
+        self.results_text.grid(row=8, column=0, columnspan=3, padx=10, pady=10)
 
         self.progress_label = ttk.Label(root, text="")
-        self.progress_label.grid(row=6, column=0, columnspan=3, padx=10, pady=10)
+        self.progress_label.grid(row=9, column=0, columnspan=3, padx=10, pady=10)
 
         self.tester = None
         self.start_time = None
@@ -327,16 +356,16 @@ class NetworkTesterGUI:
     def start_tests(self):
         network_ip = self.network_ip_entry.get()
         packet_count = int(self.packet_count_entry.get())
-        traffic_type = self.traffic_type.get()
+        traffic_types = [traffic_type for traffic_type, var in self.traffic_type_vars.items() if var.get()]
         frame_length = int(self.frame_length.get())
-        self.tester = NetworkTester(network_ip, packet_count, traffic_type, frame_length, self.update_progress)
+        self.tester = NetworkTester(network_ip, packet_count, traffic_types, frame_length, self.update_progress)
         self.results_text.delete(1.0, tk.END)
         self.progress["value"] = 0
         self.progress_label.config(text="Starting tests...")
         self.start_time = time.time()
 
         # Run tests in a separate thread to keep the GUI responsive
-        threading.Thread(target=self.run_tests, args=(self.tester,)).start()
+        threading.Thread(target=self.run_tests, args=(self.ttester,)).start()
 
     def run_tests(self, tester):
         results = tester.run_all_tests()
