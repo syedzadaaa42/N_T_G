@@ -10,6 +10,8 @@ import time
 import threading
 import statistics
 import subprocess
+import random
+import struct
 
 # Attempt to import iperf3, handle if not available
 try:
@@ -29,7 +31,8 @@ TRAFFIC_TYPE_PORT_MAP = {
     "NTP": 123,
     "Telnet": 23,
     "EIGRP": 88,  # Example port for EIGRP
-    "OSPF": 89  # Example port for OSPF
+    "OSPF": 89,   # Example port for OSPF
+    "RTP": 5004,  # Standard RTP port
 }
 
 class NetworkTester:
@@ -44,7 +47,10 @@ class NetworkTester:
     def create_packet(self):
         payload = 'X' * (self.frame_length - 20 - 20)  # Adjust for IP and TCP/UDP headers
 
-        if self.traffic_type == "TCP":
+        if self.traffic_type == "RTP":
+            return self.create_rtp_packet()
+
+        elif self.traffic_type == "TCP":
             return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["TCP"]) / Raw(load=payload)
         elif self.traffic_type == "FTP":
             return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["FTP"]) / Raw(load=payload)
@@ -68,6 +74,30 @@ class NetworkTester:
             return IP(dst=self.network_ip) / ICMP() / Raw(load=payload)
         else:
             return IP(dst=self.network_ip) / ICMP() / Raw(load=payload)
+
+    def create_rtp_packet(self):
+        # Create a dummy RTP packet
+        rtp_version = 2
+        rtp_padding = 0
+        rtp_extension = 0
+        rtp_csrc_count = 0
+        rtp_marker = 0
+        rtp_payload_type = 96  # Dynamic payload type for video/audio
+        rtp_sequence_number = random.randint(0, 65535)
+        rtp_timestamp = random.randint(0, 4294967295)
+        rtp_ssrc = random.randint(0, 4294967295)
+        rtp_payload = 'A' * (self.frame_length - 12)  # RTP header is 12 bytes
+
+        rtp_header = (
+            (rtp_version << 6) | (rtp_padding << 5) | (rtp_extension << 4) | rtp_csrc_count,
+            (rtp_marker << 7) | rtp_payload_type,
+            rtp_sequence_number,
+            rtp_timestamp,
+            rtp_ssrc
+        )
+
+        rtp_packet = struct.pack('!BBHII', *rtp_header) + rtp_payload.encode('utf-8')
+        return IP(dst=self.network_ip) / UDP(dport=TRAFFIC_TYPE_PORT_MAP["RTP"]) / Raw(load=rtp_packet)
 
     def measure_speed(self):
         self.update_progress("Running Speed Test...", 0, self.total_tests)
@@ -267,7 +297,7 @@ class NetworkTesterGUI:
 
         self.traffic_label = ttk.Label(root, text="Select Traffic Type:")
         self.traffic_label.grid(row=2, column=0, padx=10, pady=10)
-        self.traffic_types = ["TCP", "FTP", "HTTP", "SMTP", "POP3", "SSH", "NTP", "Telnet", "EIGRP", "OSPF"]
+        self.traffic_types = ["TCP", "FTP", "HTTP", "SMTP", "POP3", "SSH", "NTP", "Telnet", "EIGRP", "OSPF", "RTP"]
         self.traffic_type = ttk.Combobox(root, values=self.traffic_types)
         self.traffic_type.grid(row=2, column=1, padx=10, pady=10)
         self.traffic_type.set(self.traffic_types[0])  # Default to the first traffic type
