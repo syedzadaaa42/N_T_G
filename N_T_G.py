@@ -365,7 +365,7 @@ class NetworkTesterGUI:
         self.start_time = time.time()
 
         # Run tests in a separate thread to keep the GUI responsive
-        threading.Thread(target=self.run_tests, args=(self.ttester,)).start()
+        threading.Thread(target=self.run_tests, args=(self.tester,)).start()
 
     def run_tests(self, tester):
         results = tester.run_all_tests()
