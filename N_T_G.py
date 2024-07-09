@@ -50,12 +50,29 @@ class NetworkTester:
         if traffic_type == "RTP":
             return self.create_rtp_packet()
 
-        elif traffic_type in TRAFFIC_TYPE_PORT_MAP:
-            dport = TRAFFIC_TYPE_PORT_MAP[traffic_type]
-            protocol = TCP if traffic_type in ["TCP", "FTP", "HTTP", "SMTP", "POP3", "SSH", "Telnet"] else UDP
-            return IP(dst=self.network_ip) / protocol(dport=dport) / Raw(load=payload)
+        elif traffic_type == "TCP":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["TCP"]) / Raw(load=payload)
+        elif traffic_type == "FTP":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["FTP"]) / Raw(load=payload)
+        elif traffic_type == "HTTP":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["HTTP"]) / Raw(load=payload)
+        elif traffic_type == "SMTP":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["SMTP"]) / Raw(load=payload)
+        elif traffic_type == "POP3":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["POP3"]) / Raw(load=payload)
+        elif traffic_type == "SSH":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["SSH"]) / Raw(load=payload)
+        elif traffic_type == "NTP":
+            return IP(dst=self.network_ip) / UDP(dport=TRAFFIC_TYPE_PORT_MAP["NTP"]) / Raw(load=payload)
+        elif traffic_type == "Telnet":
+            return IP(dst=self.network_ip) / TCP(dport=TRAFFIC_TYPE_PORT_MAP["Telnet"]) / Raw(load=payload)
+        elif traffic_type == "EIGRP":
+            # EIGRP is not supported, use ICMP as a placeholder
+            return IP(dst=self.network_ip) / ICMP() / Raw(load=payload)
+        elif traffic_type == "OSPF":
+            # OSPF is not supported, use ICMP as a placeholder
+            return IP(dst=self.network_ip) / ICMP() / Raw(load=payload)
         else:
-            # For unsupported traffic types, use ICMP as a placeholder
             return IP(dst=self.network_ip) / ICMP() / Raw(load=payload)
 
     def create_rtp_packet(self):
@@ -101,19 +118,16 @@ class NetworkTester:
         self.update_progress("Running Latency Test...", 1, self.total_tests)
         latencies = []
         for traffic_type in self.traffic_types:
-            try:
-                packet = self.create_packet(traffic_type)
-                start_time = time.time()
-                response = sr1(packet, timeout=1, verbose=False)
-                end_time = time.time()
+            packet = self.create_packet(traffic_type)
+            start_time = time.time()
+            response = sr1(packet, timeout=1, verbose=False)
+            end_time = time.time()
 
-                if response:
-                    latency = end_time - start_time
-                    latencies.append(f"{traffic_type} Latency: {latency:.6f} seconds")
-                else:
-                    latencies.append(f"{traffic_type} Latency: No response")
-            except Exception as e:
-                latencies.append(f"{traffic_type} Latency: Error - {str(e)}")
+            if response:
+                latency = end_time - start_time
+                latencies.append(f"{traffic_type} Latency: {latency:.6f} seconds")
+            else:
+                latencies.append(f"{traffic_type} Latency: No response")
 
         self.update_progress("Latency Test Completed", 2, self.total_tests)
         return latencies
@@ -123,22 +137,19 @@ class NetworkTester:
         throughputs = []
 
         for traffic_type in self.traffic_types:
-            try:
-                packet = self.create_packet(traffic_type)
-                start_time = time.time()
-                packet_count = 0
+            packet = self.create_packet(traffic_type)
+            start_time = time.time()
+            packet_count = 0
 
-                while time.time() - start_time < duration:
-                    send(packet, verbose=False)
-                    packet_count += 1
+            while time.time() - start_time < duration:
+                send(packet, verbose=False)
+                packet_count += 1
 
-                end_time = time.time()
-                elapsed_time = end_time - start_time
-                throughput = (packet_size * packet_count * 8) / elapsed_time  # bits per second
-                throughput_mbps = throughput / 1_000_000  # Mbps
-                throughputs.append(f"{traffic_type} Throughput: {throughput_mbps:.2f} Mbps")
-            except Exception as e:
-                throughputs.append(f"{traffic_type} Throughput: Error - {str(e)}")
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            throughput = (packet_size * packet_count * 8) / elapsed_time  # bits per second
+            throughput_mbps = throughput / 1_000_000  # Mbps
+            throughputs.append(f"{traffic_type} Throughput: {throughput_mbps:.2f} Mbps")
 
         self.update_progress("Throughput Test Completed", 3, self.total_tests)
         return throughputs
@@ -149,6 +160,7 @@ class NetworkTester:
             self.update_progress("Bandwidth Test Failed: iperf3 not available", 4, self.total_tests)
             return "iperf3 is not installed or not available"
 
+        # Check if iperf3 executable is available
         try:
             result = subprocess.run(["iperf3", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             print(result.stdout.decode())  # This will print the version info to the console for verification
@@ -173,13 +185,9 @@ class NetworkTester:
 
     def measure_ping(self):
         self.update_progress("Running Ping Test...", 4, self.total_tests)
-        try:
-            latency = ping3.ping(self.network_ip)
-            return f"Ping latency: {latency:.6f} seconds" if latency else "Ping failed: No response"
-        except Exception as e:
-            return f"Ping failed: {str(e)}"
-        finally:
-            self.update_progress("Ping Test Completed", 5, self.total_tests)
+        latency = ping3.ping(self.network_ip)
+        self.update_progress("Ping Test Completed", 5, self.total_tests)
+        return f"Ping latency: {latency:.6f} seconds"
 
     def measure_qos(self):
         self.update_progress("Running QoS Metrics...", 5, self.total_tests)
@@ -190,17 +198,14 @@ class NetworkTester:
             packet_loss_count = 0
 
             for _ in range(self.packet_count):
-                try:
-                    packet = self.create_packet(traffic_type)
-                    start_time = time.time()
-                    response = sr1(packet, timeout=1, verbose=False)
-                    end_time = time.time()
+                packet = self.create_packet(traffic_type)
+                start_time = time.time()
+                response = sr1(packet, timeout=1, verbose=False)
+                end_time = time.time()
 
-                    if response:
-                        latencies.append(end_time - start_time)
-                    else:
-                        packet_loss_count += 1
-                except Exception:
+                if response:
+                    latencies.append(end_time - start_time)
+                else:
                     packet_loss_count += 1
 
             if latencies:
@@ -222,16 +227,13 @@ class NetworkTester:
         self.update_progress("Performing Port Scan...", 6, self.total_tests)
         open_ports = []
         for traffic_type in self.traffic_types:
-            try:
-                port = TRAFFIC_TYPE_PORT_MAP.get(traffic_type, None)
-                if port:
-                    packet = IP(dst=self.network_ip) / TCP(dport=port, flags="S")
-                    response = sr1(packet, timeout=0.5, verbose=False)
-                    if response and response.haslayer(TCP) and response.getlayer(TCP).flags == 0x12:
-                        open_ports.append((traffic_type, port))
-                        send(IP(dst=self.network_ip) / TCP(dport=port, flags="R"), verbose=False)
-            except Exception:
-                continue
+            port = TRAFFIC_TYPE_PORT_MAP.get(traffic_type, None)
+            if port:
+                packet = IP(dst=self.network_ip) / TCP(dport=port, flags="S")
+                response = sr1(packet, timeout=0.5, verbose=False)
+                if response and response.haslayer(TCP) and response.getlayer(TCP).flags == 0x12:
+                    open_ports.append((traffic_type, port))
+                    send(IP(dst=self.network_ip) / TCP(dport=port, flags="R"), verbose=False)
         self.update_progress("Port Scan Completed", 7, self.total_tests)
         return open_ports
 
@@ -240,22 +242,19 @@ class NetworkTester:
         load_throughputs = []
 
         for traffic_type in self.traffic_types:
-            try:
-                packet = self.create_packet(traffic_type)
-                start_time = time.time()
-                packet_count = 0
+            packet = self.create_packet(traffic_type)
+            start_time = time.time()
+            packet_count = 0
 
-                while time.time() - start_time < duration:
-                    send(packet, verbose=False)
-                    packet_count += 1
+            while time.time() - start_time < duration:
+                send(packet, verbose=False)
+                packet_count += 1
 
-                end_time = time.time()
-                elapsed_time = end_time - start_time
-                load_throughput = (self.frame_length * packet_count * 8) / elapsed_time  # bits per second
-                load_throughput_mbps = load_throughput / 1_000_000  # Mbps
-                load_throughputs.append(f"{traffic_type} Load Test Throughput: {load_throughput_mbps:.2f} Mbps")
-            except Exception as e:
-                load_throughputs.append(f"{traffic_type} Load Test Throughput: Error - {str(e)}")
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            load_throughput = (self.frame_length * packet_count * 8) / elapsed_time  # bits per second
+            load_throughput_mbps = load_throughput / 1_000_000  # Mbps
+            load_throughputs.append(f"{traffic_type} Load Test Throughput: {load_throughput_mbps:.2f} Mbps")
 
         self.update_progress("Load Test Completed", 8, self.total_tests)
         return load_throughputs
@@ -356,25 +355,9 @@ class NetworkTesterGUI:
 
     def start_tests(self):
         network_ip = self.network_ip_entry.get()
-        try:
-            packet_count = int(self.packet_count_entry.get())
-            if packet_count <= 0:
-                raise ValueError
-        except ValueError:
-            self.progress_label.config(text="Invalid packet count. Please enter a positive integer.")
-            return
-
+        packet_count = int(self.packet_count_entry.get())
         traffic_types = [traffic_type for traffic_type, var in self.traffic_type_vars.items() if var.get()]
-        if not traffic_types:
-            self.progress_label.config(text="No traffic types selected. Please select at least one.")
-            return
-
-        try:
-            frame_length = int(self.frame_length.get())
-        except ValueError:
-            self.progress_label.config(text="Invalid frame length. Please select a valid value.")
-            return
-
+        frame_length = int(self.frame_length.get())
         self.tester = NetworkTester(network_ip, packet_count, traffic_types, frame_length, self.update_progress)
         self.results_text.delete(1.0, tk.END)
         self.progress["value"] = 0
